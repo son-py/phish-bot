@@ -1,1 +1,40 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Simulation - Debrief</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 1rem; max-width: 700px; margin: auto; }
+      .notice { background:#ffefc7; padding:12px; border-left:4px solid #f0c000; }
+      .advice { margin-top: 1rem; padding:12px; background:#eef7ff; border-left:4px solid #58a;}
+    </style>
+  </head>
+  <body>
+    <h1>Simulation: You clicked a test link</h1>
+    <div class="notice">
+      <strong>Heads up:</strong> This was a <strong>simulated phishing</strong> link created for awareness training. No real data was collected.
+    </div>
 
+    <p><strong>Simulation ID:</strong> {{ sim_id }}</p>
+
+    <div class="advice">
+      <h3>How to spot phishing</h3>
+      <ul>
+        <li>Check the sender/email address and hover links before clicking.</li>
+        <li>Look for urgent language, typos, or unexpected attachments.</li>
+        <li>When in doubt, go to the service directly (not via the link).</li>
+      </ul>
+    </div>
+
+    <h3>Next steps</h3>
+    <ol>
+      <li>If you were not expecting this, do not enter any credentials into suspicious pages.</li>
+      <li>Read our recommended checklist: update passwords, enable MFA, verify sender identity.</li>
+      <li>If you want to opt out from future simulations, return to Discord and use <code>!optout</code>.</li>
+    </ol>
+
+    <p style="font-size:0.9rem; color:#666">
+      This exercise is part of a phishing awareness demo. If you have concerns, contact your admin.
+    </p>
+  </body>
+</html>
