@@ -1,139 +1,141 @@
 #!/usr/bin/env python3
-"""
-Simple Discord bot that sends consented simulated "phishing" messages
-which point to a safe landing page hosted by the Flask app.
-
-IMPORTANT:
-- Only message users/channels that have explicitly opted in.
-- Never collect real credentials.
-"""
-
-import os
-import json
-import random
-import sqlite3
+import os, sqlite3, json, random, time
 from datetime import datetime
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands, tasks
 
-load_dotenv("../.env") if os.path.exists("../.env") else load_dotenv()
+# load .env
+if os.path.exists("../.env"):
+    load_dotenv("../.env")
+else:
+    load_dotenv()
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 TEST_CHANNEL_ID = int(os.environ.get("TEST_CHANNEL_ID", "0"))
 WEB_BASE_URL = os.environ.get("WEB_BASE_URL", "http://localhost:8000")
-DATABASE_PATH = os.environ.get("DATABASE_URL", "sqlite:///./db/dev.db").replace("sqlite:///", "")
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./db/dev.db").replace("sqlite:///", "")
+ADMIN_NOTIFY_CHANNEL = int(os.environ.get("ADMIN_NOTIFY_CHANNEL", "0"))
 
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Load templates
-with open("templates.json", "r", encoding="utf-8") as f:
-    TEMPLATES = json.load(f)['phish']
-
 def db_connect():
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(DATABASE_URL)
     conn.row_factory = sqlite3.Row
     return conn
 
-def ensure_tables():
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    discord_id TEXT UNIQUE,
-                    consent INTEGER DEFAULT 0,
-                    opted_out INTEGER DEFAULT 0,
-                    ts TEXT
-                   )""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS sims (
-                    id TEXT PRIMARY KEY,
-                    template TEXT,
-                    ts TEXT
-                   )""")
-    conn.commit()
-    conn.close()
+def fetch_templates():
+    conn = db_connect(); cur = conn.cursor()
+    cur.execute("SELECT id, text FROM templates")
+    rows = cur.fetchall(); conn.close()
+    return rows
+
+def fetch_opted_in_users():
+    conn = db_connect(); cur = conn.cursor()
+    cur.execute("SELECT discord_id FROM users WHERE consent=1 AND opted_out=0")
+    rows = cur.fetchall(); conn.close()
+    return [r['discord_id'] for r in rows]
+
+def fetch_pending_campaign():
+    conn = db_connect(); cur = conn.cursor()
+    cur.execute("SELECT * FROM campaigns WHERE status='pending' ORDER BY created_at LIMIT 1")
+    r = cur.fetchone(); conn.close()
+    return r
+
+def mark_campaign_sent(campaign_id):
+    conn = db_connect(); cur = conn.cursor()
+    cur.execute("UPDATE campaigns SET status='sent', sent_at=? WHERE id=?", (datetime.utcnow().isoformat(), campaign_id))
+    conn.commit(); conn.close()
 
 @bot.event
 async def on_ready():
-    ensure_tables()
-    print(f"Bot connected as {bot.user}.")
-    send_simulations.start()
+    print(f"Bot connected as {bot.user}")
+    check_campaigns.start()
 
 @bot.command(name="optin")
 async def optin(ctx):
-    """User opts in to receive simulations."""
     discord_id = str(ctx.author.id)
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute("INSERT OR REPLACE INTO users (discord_id, consent, opted_out, ts) VALUES (?, ?, ?, ?)",
-                (discord_id, 1, 0, datetime.utcnow().isoformat()))
-    conn.commit()
-    conn.close()
+    conn = db_connect(); cur = conn.cursor()
+    cur.execute("INSERT OR REPLACE INTO users (discord_id, consent, opted_out, ts) VALUES (?,1,0,?)",
+                (discord_id, datetime.utcnow().isoformat()))
+    conn.commit(); conn.close()
     await ctx.send("✅ You are now opted in for phishing awareness simulations. You can opt out anytime with !optout")
 
 @bot.command(name="optout")
 async def optout(ctx):
-    """User opts out."""
     discord_id = str(ctx.author.id)
-    conn = db_connect()
-    cur = conn.cursor()
+    conn = db_connect(); cur = conn.cursor()
     cur.execute("UPDATE users SET opted_out=1, consent=0 WHERE discord_id = ?", (discord_id,))
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
     await ctx.send("✅ You have been opted out. You will no longer receive simulated messages.")
 
-@bot.command(name="status")
-async def status(ctx):
-    discord_id = str(ctx.author.id)
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute("SELECT consent, opted_out FROM users WHERE discord_id = ?", (discord_id,))
-    row = cur.fetchone()
+@tasks.loop(seconds=15)  # poll every 15s for admin-created campaigns
+async def check_campaigns():
+    c = fetch_pending_campaign()
+    if not c:
+        return
+    # set status sending to avoid races
+    conn = db_connect(); cur = conn.cursor()
+    cur.execute("UPDATE campaigns SET status='sending' WHERE id=?", (c['id'],))
+    conn.commit(); conn.close()
+
+    template_id = c['template_id']
+    conn = db_connect(); cur = conn.cursor()
+    cur.execute("SELECT text FROM templates WHERE id=?", (template_id,))
+    t = cur.fetchone()
     conn.close()
-    if row:
-        await ctx.send(f"Consent: {row['consent']}, Opted out: {row['opted_out']}")
+    if not t:
+        print("Template not found for campaign", c['id'])
+        # mark failed
+        conn = db_connect(); cur = conn.cursor()
+        cur.execute("UPDATE campaigns SET status='failed' WHERE id=?", (c['id'],))
+        conn.commit(); conn.close()
+        return
+
+    text = t['text']
+    labelled = bool(c['labelled'])
+    mode = c['mode']  # 'dm' or 'channel'
+    sim_id = c['id']  # use campaign id as sim_id
+
+    sent_count = 0
+    if mode == 'channel':
+        # post one message to the configured test channel
+        try:
+            channel = bot.get_channel(TEST_CHANNEL_ID) or await bot.fetch_channel(TEST_CHANNEL_ID)
+            link = f"{WEB_BASE_URL}/l/{sim_id}"
+            message = text.replace("{{link}}", link).replace("{{name}}", "Team")
+            if labelled:
+                await channel.send(f"**Simulated Message**\n{message}\n\n*(This is a simulated phishing message for consenting users only.)*")
+            else:
+                await channel.send(message)
+            sent_count = 1
+        except Exception as e:
+            print("Failed send to channel:", e)
     else:
-        await ctx.send("You have not opted in. Use !optin to opt in.")
+        # DM each opted-in user
+        users = fetch_opted_in_users()
+        for discord_id in users:
+            try:
+                user = await bot.fetch_user(int(discord_id))
+                link = f"{WEB_BASE_URL}/l/{sim_id}?u={discord_id}"
+                message = text.replace("{{link}}", link).replace("{{name}}", user.name if user else "Colleague")
+                if labelled:
+                    await user.send(f"**Simulated Message**\n{message}\n\n*(This is a simulated phishing message for consenting users only.)*")
+                else:
+                    await user.send(message)
+                sent_count += 1
+            except Exception as e:
+                print("Failed DM to", discord_id, e)
 
-@tasks.loop(minutes=5)  # For testing, runs every 5 minutes. Change to hours/days for production.
-async def send_simulations():
-    """
-    Picks one template and sends it to the test channel (or DMs) for users that consented.
-    NOTE: This example sends to a configured test channel. Use DMs carefully and only with consent.
-    """
-    if TEST_CHANNEL_ID == 0:
-        return
-    try:
-        channel = bot.get_channel(TEST_CHANNEL_ID) or await bot.fetch_channel(TEST_CHANNEL_ID)
-    except Exception as e:
-        print("Could not fetch test channel:", e)
-        return
-
-    # Get users who consented and are not opted out
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute("SELECT discord_id FROM users WHERE consent=1 AND opted_out=0")
-    rows = cur.fetchall()
-    conn.close()
-    if not rows:
-        # nothing to send
-        return
-
-    # For demo: send one message to the test channel (can be per-user DM in real usage)
-    tmpl = random.choice(TEMPLATES)
-    sim_id = tmpl['id']
-    link = f"{WEB_BASE_URL}/l/{sim_id}"
-    # basic personalization
-    message = tmpl['text'].replace("{{link}}", link).replace("{{name}}", "friend")
-
-    # send to channel
-    await channel.send(f"**Simulated Message**\n{message}\n\n*(This is a simulated phishing message for consenting users only.)*")
+    # mark campaign as sent
+    mark_campaign_sent(c['id'])
+    print(f"Campaign {c['id']} sent to {sent_count} recipients.")
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
         print("ERROR: DISCORD_TOKEN not set in environment.")
         exit(1)
-    ensure_tables()
     bot.run(DISCORD_TOKEN)
