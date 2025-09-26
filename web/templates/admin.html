@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PhishBot Admin</title>
+  <style>body{font-family:Arial;padding:12px;} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:8px}</style>
+</head>
+<body>
+  <h1>PhishBot Admin</h1>
+  <p><strong>Token:</strong> use the token parameter in the URL to access (kept secret)</p>
+
+  <h2>Settings</h2>
+  <form action="/admin/settings" method="post">
+    <input type="hidden" name="token" value="{{ token }}"/>
+    <label><input type="radio" name="labelled" value="1" {% if labelled %}checked{% endif %}/> Labelled (safe)</label>
+    <label style="margin-left:12px"><input type="radio" name="labelled" value="0" {% if not labelled %}checked{% endif %}/> Realistic (no visible label)</label>
+    <br/><br/>
+    Delivery:
+    <label><input type="radio" name="delivery" value="dm" {% if default_mode=='dm' %}checked{% endif %}/> DMs to opted-in users</label>
+    <label style="margin-left:12px"><input type="radio" name="delivery" value="channel" {% if default_mode=='channel' %}checked{% endif %}/> Post to test channel</label>
+    <br/><br/>
+    <button type="submit">Save settings</button>
+  </form>
+
+  <h2>Templates</h2>
+  <form action="/admin/template" method="post">
+    <input type="hidden" name="token" value="{{ token }}"/>
+    <label>Template ID (short): <input name="id" required/></label><br/>
+    <label>Text (use {{'{{link}}'}} and {{'{{name}}'}} tokens):</label><br/>
+    <textarea name="text" rows="3" style="width:100%" placeholder="e.g. Hi {{'{{name}}'}}, please review this invoice: {{'{{link}}'}}" required></textarea><br/>
+    <button type="submit">Add template</button>
+  </form>
+
+  <h3>Existing Templates</h3>
+  <table>
+    <tr><th>ID</th><th>Text</th><th>Action</th></tr>
+    {% for t in templates %}
+    <tr>
+      <td>{{ t['id'] }}</td>
+      <td>{{ t['text'] }}</td>
+      <td>
+        <form action="/admin/template/delete" method="post" style="display:inline">
+          <input type="hidden" name="token" value="{{ token }}"/>
+          <input type="hidden" name="id" value="{{ t['id'] }}"/>
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h2>Create Campaign</h2>
+  <form action="/admin/campaign" method="post">
+    <input type="hidden" name="token" value="{{ token }}"/>
+    <label>Campaign name: <input name="name"/></label><br/>
+    <label>Template:
+      <select name="template_id" required>
+        {% for t in templates %}
+          <option value="{{ t['id'] }}">{{ t['id'] }} — {{ t['text'][:60] }}</option>
+        {% endfor %}
+      </select>
+    </label><br/>
+    <label>Mode:
+      <select name="mode">
+        <option value="dm" {% if default_mode=='dm' %}selected{% endif %}>DMs to opted-in users</option>
+        <option value="channel" {% if default_mode=='channel' %}selected{% endif %}>Post to test channel</option>
+      </select>
+    </label><br/>
+    <label>Labelled:
+      <select name="labelled">
+        <option value="1">Labelled (safe)</option>
+        <option value="0">Realistic</option>
+      </select>
+    </label><br/>
+    <label>Created by: <input name="created_by" value="web-admin"/></label><br/>
+    <button type="submit">Create & Queue Campaign</button>
+  </form>
+
+  <h2>Stats</h2>
+  <p><a href="/admin/export?token={{ token }}">Export clicks CSV</a></p>
+  <table>
+    <tr><th>Sim ID</th><th>Clicks</th><th>Submissions</th></tr>
+    {% for r in rows %}
+    <tr><td>{{ r['sim_id'] }}</td><td>{{ r['clicks'] }}</td><td>{{ r['submissions'] or 0 }}</td></tr>
+    {% endfor %}
+  </table>
+
+</body>
+</html>
