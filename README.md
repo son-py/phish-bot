@@ -1,16 +1,39 @@
 # PhishBot — Phishing Awareness Chatbot (Starter)
 
-Short: A consent-driven Discord phishing simulation bot + Flask landing page for awareness training.
+A consent-driven **Discord phishing simulation & awareness chatbot** with a Flask-based landing page and admin panel.  
+Built for security training and awareness exercises, not for real phishing.
 
-## Features
-- Discord bot: opt-in (`!optin`) / opt-out (`!optout`) commands.
-- Sends templated simulated phishing messages that link to an educational landing page.
-- Click logging to a database (SQLite for dev).
-- Admin summary page at `/admin?token=ADMIN_SECRET`.
+---
 
-## Quickstart (local)
-1. Copy `.env.example` to `.env` and fill values.
-2. Create a Discord bot and get its token. Set `DISCORD_TOKEN` and `TEST_CHANNEL_ID`.
-3. Initialize DB:
-   ```bash
-   python db/init_db.py
+## ✨ Features
+- 🤖 **Discord Bot**
+  - `!optin` / `!optout` to manage consent.
+  - Sends templated simulated phishing messages.
+  - Educational chatbot commands:
+    - `!tip` / `!tips` — random security awareness tips.
+    - `!faq <topic>` — quick answers to common security questions.
+    - `!quiz` — short awareness quiz.
+    - `!phishcheck <text/link>` — basic heuristic risk check.
+- 🌐 **Flask Web App**
+  - Landing page for simulated phishing links.
+  - Admin UI at `/admin?token=ADMIN_SECRET` with:
+    - Manage settings
+    - Manage templates
+    - Launch campaigns
+    - View click/submission stats
+- 💾 **Database**
+  - SQLite (dev by default), easy to swap for Postgres/MySQL.
+  - Tracks campaigns, user consent, clicks.
+
+---
+
+## 🚀 Quickstart (local)
+
+### 1. Clone repo & install deps
+```bash
+git clone https://github.com/son-py/phish-bot.git
+cd phish-bot
+python -m venv venv
+.\venv\Scripts\activate   # Windows
+pip install -r bot/requirements.txt
+pip install -r web/requirements.txt
