@@ -1,0 +1,16 @@
+{
+  "phish": [
+    {
+      "id": "sim001",
+      "text": "Hi {{name}}, urgent action required: your subscription failed. Confirm billing here: {{link}}"
+    },
+    {
+      "id": "sim002",
+      "text": "Hello {{name}} — we've shared a confidential doc with you. View it: {{link}}"
+    },
+    {
+      "id": "sim003",
+      "text": "FYI {{name}}, IT needs you to verify your account settings: {{link}}"
+    }
+  ]
+}
